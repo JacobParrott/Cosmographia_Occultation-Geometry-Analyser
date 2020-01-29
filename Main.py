@@ -1,7 +1,4 @@
 
-#ADD SOME SORT OF LIECENSE [ASK SEBASTIEN]
-
-
 import numpy as np
 import spiceypy as spice
 import spiceypy.utils.support_types as stypes
@@ -12,8 +9,6 @@ import json
 #Import custom modules
 import profileformer
 import JSONtemplate as JS
-
-
 
 
 #-----------------------------------------------------<VALUES TO EDIT REGULARLY>----------------------------------------
