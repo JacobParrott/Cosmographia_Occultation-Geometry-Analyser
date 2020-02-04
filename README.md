@@ -1,4 +1,4 @@
-# OccultationProfiler
+# Occultation Geometry Analyser
 ![](https://github.com/JacobParrott/OccultationProfiler/blob/master/images/Coverimage.png)
 ## What this Project aims to achieve
 In Short - It aims to create a tool to analyse occultation geometry to aid in observation planning. This tool will be built using the Spiceypy package so that the SPICE toolset( developed by NAIF) can be employed. The first few releases of this project will aim to produce an automated Cosmographia catalogue to visual the shape of occultation profile(as shown above). Later on this project will be updated to produce further details about individual occultations, such as:
