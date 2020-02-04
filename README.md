@@ -34,8 +34,8 @@ To produce and image similar to the image at the top of the page:
 start  = '2020 JAN 1'
 stop   = '2020 JAN 6'
 OCCSELECTION = 2 # Which occultation do you wish to see?
-PathtoMetaKernel1 = '/home/jparrott/scratch/jparrott/windows_mocc/tgo_kerns/mk/em16_plan.tm'
-PathtoMetaKernel2 = '/home/jparrott/scratch/jparrott/windows_mocc/mex_kerns/mk/MEX_OPS.tm' #[ ommit if only one mk]
+PathtoMetaKernel1 = '_____'
+PathtoMetaKernel2 = '_____' #[ ommit if only one mk]
 #-----------------------------------------------------------------------------------------------------------------------
 
 
