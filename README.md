@@ -9,7 +9,7 @@ Currently this tool can analyse:
 + Distance between target and observer - So that SNR can be considered
 + Grazing Angle - To see how vertical the profile is (if the grazing angle is too large, then the top of the profile will be measuring a very different region of the planets atmosphere [could start at the poles and end on the equator.])
 + Location of the Occultations, with included map (as shown below)
-![]( https://github.com/JacobParrott/OccultationProfiler/images/ExampleMapMars.png )
+![]( https://github.com/JacobParrott/Occultation-Geometry-Analyser/blob/master/images/ExampleMapMars.png )
 
 Later on, this project will be updated to produce further details about individual occultations, such as:
 + Local times
