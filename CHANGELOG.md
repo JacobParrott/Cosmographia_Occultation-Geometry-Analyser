@@ -1,5 +1,7 @@
 
 # Change Log
+## 06/04/20
++ Residual doppler can now partially be solved, using two refractive models, one for the nuetral atmosphere and one for the ionosphere. Next to be added is a comparision between straight line rays between observer -> target and a curved refracted ray path. I am seeking a small delta in electric length between curved and straight. I want to see if I can simulate with a single straight line as this would come at a much lower computational cost. 
 ## 26/02/20
 + Change Log added
 + ReadMe updated to reflect new capabilities

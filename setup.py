@@ -8,16 +8,15 @@ import matplotlib.pyplot as plt
 
 #Import custom modules
 import main
-
-
+import atmosphere
 
 
 #-----------------------------------------------------<VALUES TO EDIT REGULARLY>----------------------------------------
 # If you only wish to analysis mutual [cross-link] occultation between MEX and TGO, then this is the only section that
 # needs to be edited
 start  = '2020 JAN 1'
-stop   = '2020 JAN 6'
-OCCSELECTION = 7 # Which occultation do you wish to see in Cosmographia? [optional]
+stop   = '2020 JAN 3'
+OCCSELECTION = 9 # Which occultation do you wish to see in Cosmographia? [optional]
 here = path.abspath(path.dirname(__file__))
 PathtoMetaKernel1 = here + '/TGO/krns/mk/em16_plan.tm'
 PathtoMetaKernel2 = here + '/MEX/krns/mk/MEX_OPS.tm'
@@ -56,21 +55,26 @@ for i in range(winsiz):
         ingresslist = ingress
     else:
         ingresslist = np.append(ingresslist, [ingress])
-occ = np.transpose(range(winsiz-1))#<--- THIS ISNT USED?
+
 
 #form the dataframe
 occs = pd.DataFrame(ingresslist, columns=['Time'])
 
 
-# ^^ ABOVE, THE OCCWINDOWS HAVE BEEN ESTABLISHED, EVERY FUNCTION WILL REQUIRE THIS
-# EVERYTHING AFTER THIS CAN BE PUT INTO A FUNCTION
-#profileformer.CosmographiaCatalogFormer(df.Time[OCCSELECTION], sv.front, sv.fframe, sv.obs, sv.target, sv.TFMT)
+#Form the profile geometry to be ported into Cosmographia (see README)
 main.CosmographiaCatalogFormer(occs.Time[OCCSELECTION], sv)
 
+#Calculate the residual doppler as the sum of the neutral and ionosphere
+ray, dist = main.bending(occs.Time[OCCSELECTION], sv)
+ionoresidual = atmosphere.iono(ray,dist,sv)
+neutralresidual = atmosphere.neutral(ray,dist,sv)
+residual = ionoresidual + neutralresidual
 
+#Then integrate along residual to find total doppler
 
 
 #Populate lists with geometric parameters for each epoch
+lon = lat = dist = sza = angle = np.ones([winsiz,1])
 for i in range(winsiz-1):
 
     #try to plot the location on a map with cartopy
@@ -78,7 +82,7 @@ for i in range(winsiz-1):
 
     sza[i] = main.SolarZenithAngles(occs.Time[i],nearestpoint, sv)
 
-    angle[i] = main.grazingangle(occs.Time[i], sv) #not complete
+    angle[i] = main.grazingangle(occs.Time[i], sv) 
 
     progess = (i/winsiz) *100
     print('%.2f' %progess)

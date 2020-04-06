@@ -159,8 +159,8 @@ def CosmographiaCatalogFormer(et,sv):
         # the start time, end time(epoch of occultation), the spread and finally the intensity of colour
         template['items'][itemcounter]['geometry']['emitters'][0]['generator']['states'] = states
         template['items'][itemcounter]['name'] = 'Profile ' + str(itemcounter)
-        #template['items'][itemcounter]['geometry']['emitters'][0]['startTime'] = spice.timout((et - i), sv.TFMT)
-        #template['items'][itemcounter]['geometry']['emitters'][0]['endTime'] = endtimeFMT
+        template['items'][itemcounter]['geometry']['emitters'][0]['startTime'] = spice.timout((et - i), sv.TFMT)
+        template['items'][itemcounter]['geometry']['emitters'][0]['endTime'] = endtimeFMT
         template['items'][itemcounter]['geometry']['emitters'][0]['velocityVariation'] = (profilespread + 1)
         template['items'][itemcounter]['geometry']['emitters'][0]['endSize'] = profileintensity
         itemcounter = itemcounter + 1
@@ -229,7 +229,7 @@ def grazingangle(et,sv):
 
 # Show the location of the occultation location on a map of mars
 def charter(lon, lat,beg,stop,file_location):
-    path_to_pic = file_location + '/Pictures/2k_mars.jpg'
+    path_to_pic = file_location + '/images/2k_mars.jpg'
     raw_image = Image.open(path_to_pic)
     img = np.asarray(raw_image)# convert to array
     globe = ccrs.Globe(semimajor_axis=285000., semiminor_axis=229000., ellipse=None)
@@ -243,3 +243,41 @@ def charter(lon, lat,beg,stop,file_location):
     plt.title(title)
     ax.plot(lon, lat, 'o',c='#bef9b9' , transform=ccrs.PlateCarree())
     plt.show()
+
+
+
+# Produce a array containing all the coord (lon/lat), altitudes and SZAs for every meter along the Spacecraft-Spacecraft Vector
+def bending(et, sv):
+    [TGO, _] = spice.spkpos(sv.front, et, sv.fframe, 'NONE', sv.target)
+    [MEX, _] = spice.spkpos(sv.front, et, sv.fframe, 'NONE', sv.obs)
+
+    dist = math.floor(spice.vdist(TGO,MEX))
+    print(dist)
+    # NEED TO PRODUCE VECTOR OF SZA AND HEIGHTS THAT ARE 'DIST' LONG [13242.9 m] *comp expensive 
+    # start by making DIST length vector, 3 height, for every meter from mex to tgo
+    # MAYBE FIND THE UNIT VECTOR AND ADD ONE IN ITS DIRECTION!!
+    sc2sc = TGO - MEX
+    norm = np.linalg.norm(sc2sc)
+    unitsc2sc = sc2sc/norm
+    points = np.empty([3,dist])
+    sza = np.empty([1,dist])
+    marsrad = spice.bodvrd(sv.front, 'RADII', 3)
+    flatteningcoefficient = ( marsrad[1][0] - marsrad[1][2] ) / marsrad[1][0]
+    equatorialradii = marsrad[1][0]
+    # find direction of sun, it will not change much during the occultation. so only calc it once
+    [SUN, _] = spice.spkpos(sv.front, et, sv.fframe, 'NONE', 'SUN')
+    for i in range(dist):
+        point = MEX + (i * unitsc2sc)
+        sza[0,i] = spice.vsep(SUN,point)
+        points[:,i] = spice.recgeo(point, equatorialradii,flatteningcoefficient)
+        points[0,i] = (points[0,i] * (-180 / math.pi))
+        points[1,i] = (points[1,i] * (-180 / math.pi))
+       
+        
+        print((i/math.floor(dist))*100)
+
+    ray = np.concatenate((points,sza), axis=0)
+    print('stop here')
+
+
+    return ray, dist
