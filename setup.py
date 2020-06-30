@@ -1,14 +1,24 @@
 
+
 import numpy as np
 import spiceypy as spice
 import spiceypy.utils.support_types as stypes
 import pandas as pd
-from os import path
+from os import *
 import matplotlib.pyplot as plt
+import time
+from tqdm import tqdm
+import csv
+from multiprocessing import Pool
 
 #Import custom modules
+
 import main
 import atmosphere
+import swiftmain #a faster version for the costly doppler profile calculations
+import FindDopplerMain
+
+
 
 
 #-----------------------------------------------------<VALUES TO EDIT REGULARLY>----------------------------------------
@@ -16,7 +26,7 @@ import atmosphere
 # needs to be edited
 start  = '2020 JAN 1'
 stop   = '2020 JAN 3'
-OCCSELECTION = 9 # Which occultation do you wish to see in Cosmographia? [optional]
+OCCSELECTION = 14 # Which occultation do you wish to see in Cosmographia? [optional]
 here = path.abspath(path.dirname(__file__))
 PathtoMetaKernel1 = here + '/TGO/krns/mk/em16_plan.tm'
 PathtoMetaKernel2 = here + '/MEX/krns/mk/MEX_OPS.tm'
@@ -47,7 +57,7 @@ winsiz = spice.wncard( occwindow )# Find cardinality (number of windows)
 lon , lat, dist, sza, angle = ( np.ones(winsiz-1) for i in range(5))
 
 
-# Inter the ingress epochs into a dataframe
+# Enter the ingress epochs into a dataframe
 occlist = np.ones((winsiz,3))
 for i in range(winsiz):
     [ingress, egress] = spice.wnfetd(occwindow, i) # extract the begining and ends of the windows
@@ -56,29 +66,65 @@ for i in range(winsiz):
     else:
         ingresslist = np.append(ingresslist, [ingress])
 
-
+#MEX,TGO = FindDopplerMain.ephemerides(636391881,1)
 #form the dataframe
 occs = pd.DataFrame(ingresslist, columns=['Time'])
-
+print(occs.Time[OCCSELECTION])
 
 #Form the profile geometry to be ported into Cosmographia (see README)
-main.CosmographiaCatalogFormer(occs.Time[OCCSELECTION], sv)
+#main.CosmographiaCatalogFormer(occs.Time[OCCSELECTION], sv)
 
 #Calculate the residual doppler as the sum of the neutral and ionosphere
-ray, dist = main.bending(occs.Time[OCCSELECTION], sv)
-ionoresidual = atmosphere.iono(ray,dist,sv)
-neutralresidual = atmosphere.neutral(ray,dist,sv)
-residual = ionoresidual + neutralresidual
 
-#Then integrate along residual to find total doppler
+# Produce geometry in wavelenghts to investigate electric distance
 
+#ray, dist, totalperiods, remainingdistance = main.producegeometrylamda(occs.Time[OCCSELECTION], sv, 5)
+Ssize = 1
+S = np.zeros(Ssize)
+
+for time in range(Ssize):
+    initialangle, MEX,TGO, xyzpoints= main.producegeometrymeter(631255812.2432083,sv, time)
+    Bending, ElectricDistance = main.flatbending(xyzpoints, initialangle, sv, MEX, TGO)
+    S[time] = ElectricDistance
+ 
+np.savetxt('ElectricDistance.csv', S, delimiter = ',')
+print("this worked")
+
+with open('ElectricDistance.csv') as Scsv:
+    Snew = list(csv.reader(Scsv)) #record all the electric distance values in km
+
+
+
+
+#####################################################################################
+toc = time.clock()
+print(toc-tic)
+ionoresidual = atmosphere.iono(ray[2,:],totalperiods)
+neutralresidual = atmosphere.neutral(ray[2,:],totalperiods)
+residual = 1 + (ionoresidual + neutralresidual)
+
+plt.plot(range(totalperiods),residual[0,:])
+plt.title("Refractive Index through Propergation of Ray")
+plt.xlabel("MEX->TGO distance (km)")
+plt.ylabel("Refractive Index")
+plt.show()
+
+[electricdistance, geometric, dopplershift] = main.doppler(residual, totalperiods, dist, remainingdistance)
+miss = electricdistance - dist + remainingdistance # a possitive number as electric distance is greater that geometric due to iono
+howwrongurcodeis = geometric - dist # is this purly due to rounding of that 9945 (each 1 is ~685 m)
+# print("Delta between electric distance and geometric distance is", "{:.8f}".format(miss * 1000 ), "m")
 
 #Populate lists with geometric parameters for each epoch
-lon = lat = dist = sza = angle = np.ones([winsiz,1])
+lon = np.ones([winsiz,1])
+lat =  np.ones([winsiz,1])
+dist=np.ones([winsiz,1])
+sza= np.ones([winsiz,1])
+angle = np.ones([winsiz,1]) # HERE
+
 for i in range(winsiz-1):
 
     #try to plot the location on a map with cartopy
-    lon[i],lat[i], dist[i], nearestpoint = main.Location(occs.Time[i], sv)
+    lon[i],lat[i], dist[i], nearestpoint, alt = main.Location(occs.Time[i], sv, 0)
 
     sza[i] = main.SolarZenithAngles(occs.Time[i],nearestpoint, sv)
 
@@ -91,11 +137,11 @@ for i in range(winsiz-1):
 main.charter(lon, lat, start, stop,here)
 
 # Add to dataframe
-occs['Longitude'] = lon
-occs['Latitude']  = lat
-occs['Distance'] = dist
-occs['SolarZenithAngle'] = sza
-occs['GrazingAngle'] = angle
+occs['Longitude'] = lon[0,:]
+occs['Latitude']  = lat[0,:]
+occs['Distance'] = dist[0,:]
+occs['SolarZenithAngle'] = sza[0,:]
+occs['GrazingAngle'] = angle[0,:]
 
 
 
