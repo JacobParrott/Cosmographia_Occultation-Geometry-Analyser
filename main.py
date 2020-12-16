@@ -1,7 +1,9 @@
 import numpy as np
 import spiceypy as spice
 from scipy import constants
-from scipy.interpolate import InterpolatedUnivariateSpline
+from scipy.interpolate import interp1d
+
+
 import math
 import array as arr
 import shapely
@@ -9,7 +11,8 @@ import shapely
 from tqdm import tqdm
 import time as timer
 from mpmath import *
-mp.dps = 60 
+mp.dps = 4 
+
 #getcontext().prec = 35 #set the precision for the bending in function "flatbending" 
 
 
@@ -26,16 +29,16 @@ import atmosphere_highprecision
 
 
 class SpiceVariables:
-    obs  = '-41' # NAIF code for MEX
-    target = '-143'# NAIF code for TGO ['EARTH'/'SUN'/ a groundstation etc]
+    obs  = '-41' # NAIF code for MEX (-41)
+    target = '-143'# NAIF code for TGO (-143)['EARTH'/'SUN'/ a groundstation etc]
     obsfrm = 'IAU_MARS'
     abcorr = 'NONE'
     crdsys = 'LATITUDINAL'
     coord  = 'LATITUDE'
-    stepsz = 100.0 # Check every 300 seconds if there is an occultation
+    stepsz = 2.0 # Check every 300 seconds if there is an occultation
     MAXILV = 100000 #Max number of occultations that can be returned by gfoclt
-    bshape = 'POINT'
-    fshape = 'DSK/UNPRIORITIZED'
+    bshape = 'POINT' #Rx shape
+    fshape = 'ELLIPSOID'
     front = 'MARS'
     fframe = 'IAU_MARS'
     TFMT = 'YYYY-MM-DD HR:MN:SC' # Format that Cosmographia understands
@@ -46,17 +49,19 @@ class SpiceVariables:
 # cartesian coordinated in the Martian reference frame[x y z].This functions works backwards from the
 # point of occulatation. the time intervals are seconds. The top of the profile is defined
 # when the TGO [target] becomes closer than the tangent point.
-def occgradient(front, time, fframe, obs, target):
+def occgradient(front, et, fframe, obs, target):
 
     marsrad = spice.bodvrd(front, 'RADII', 3)# Extract the triaxial dimensions of Mars
+    #marsrad[1][:] = marsrad[1][:]-100
     increaser = 0
     altlist = 0
-
-    for i in range(2000):
+    lowesttime = 0
+    #et = spice.str2et(time)
+    for i in range(600):
         # Find relative positions of TGO and MEX
-        [targetpos, _] = spice.spkpos(front, (time - i), fframe, 'LT+S', target)
-        [sc2scvector, _] = spice.spkpos(target, (time - i), fframe, 'NONE', obs)
-        [obspos, _] = spice.spkpos(front, (time - i), fframe, 'LT+S', obs)
+        [targetpos, _] = spice.spkpos(front, et - i, fframe, 'LT+S', target)
+        [sc2scvector, _] = spice.spkpos(target, et - i, fframe, 'NONE', obs)
+        [obspos, _] = spice.spkpos(front, et - i, fframe, 'LT+S', obs)
 
         # Find the unit vector between the SCs
         displacement = math.sqrt(((sc2scvector[0]) ** 2) + ((sc2scvector[1]) ** 2) + ((sc2scvector[2]) ** 2))
@@ -64,6 +69,7 @@ def occgradient(front, time, fframe, obs, target):
 
         # Find the point this unit vector is closest to the Mars
         [profilesurfacepoint, alt] = spice.npedln(marsrad[1][0], marsrad[1][1], marsrad[1][2], targetpos, unitvector)
+        
         altlist = np.append(altlist, alt)
 
         # Find distance between the tangent point and MEX (obs)
@@ -80,7 +86,7 @@ def occgradient(front, time, fframe, obs, target):
         if tangent2mexdist > (displacement-50):
             tangentpoint = targetpos
             highesttime = i
-            break
+            #break
 
         #The peak height can also be defined by when the profile begins to planteau [when the profile raises by less than
         # 50 m/s ]
@@ -97,54 +103,125 @@ def occgradient(front, time, fframe, obs, target):
             y = np.append(y, int(tangentpoint[1]))
             z = np.append(z, int(tangentpoint[2]))
 
-        # If there is a particular altitude that needs to be highlighted, can be done like this (eg 200km)
-        if alt > 200 + increaser:
+        # # If there is a particular altitude that needs to be highlighted, can be done like this (eg 200km)
+        if alt > 1 + increaser:
             lowesttime = i
             increaser = 100000
 
-    # Form a array of cartesian coordinates, transpose for convinience
+    z=z-100
+    # Form a array of cartesian coordinates, transpose for convienience
     profile = [x.T, y.T, z.T]
 
+    highesttime = 600
+    
     return profile, lowesttime, highesttime
 
 
+def Cosmooccgradient(front, et, fframe, obs, target):
 
+    marsrad = spice.bodvrd(front, 'RADII', 3)# Extract the triaxial dimensions of Mars
+    
+    increaser = 0
+    altlist = 0
+    #et = spice.str2et(time)
+    for i in range(2000):
+        # Find relative positions of TGO and MEX
+        [targetpos, _] = spice.spkpos(front, et - i, fframe, 'LT+S', target)
+        [sc2scvector, _] = spice.spkpos(target, et - i, fframe, 'NONE', obs)
+        [obspos, _] = spice.spkpos(front, et - i, fframe, 'LT+S', obs)
+
+        # Find the unit vector between the SCs
+        displacement = math.sqrt(((sc2scvector[0]) ** 2) + ((sc2scvector[1]) ** 2) + ((sc2scvector[2]) ** 2))
+        unitvector = np.true_divide(sc2scvector, displacement)
+
+        # Find the point this unit vector is closest to the Mars
+        [profilesurfacepoint, alt] = spice.npedln(marsrad[1][0], marsrad[1][1], marsrad[1][2], targetpos, unitvector)
+        
+        altlist = np.append(altlist, alt) #!!!!!Adjustment made here!!!!!
+
+        # Find distance between the tangent point and MEX (obs)
+        tangent2mexdist = np.linalg.norm(obspos - profilesurfacepoint)
+
+        # Need to add the altitude to the surface bound point. 'profilesurfacepoint' is a vector
+        # from Mars' barrycenter to the surface, therefore
+        # The vector is also the direction of altitude, so product must be added to the surface point
+        tangentpointunitvector = profilesurfacepoint / np.linalg.norm(profilesurfacepoint)
+        tangentpoint = (tangentpointunitvector * alt) + profilesurfacepoint
+
+        #the SPICE function 'npedln' does not calculate along a vector between the two SCs, the vector continues through TGO. This is correced
+        #by the following. If the tangent2mex distance > than the tgo2mex distance, then the vector has passed though the TGO. End function when this occurs
+        if tangent2mexdist > (displacement-50):
+            tangentpoint = targetpos
+            Highesttime = i
+            break
+
+        #The peak height can also be defined by when the profile begins to planteau [when the profile raises by less than
+        # 50 m/s ]
+        # if altlist[i-1]+0.5 >altlist[i]:
+        #     Highesttime = i
+
+        # Form array of profile coordinates
+        if i == 0:
+            x = int(tangentpoint[0])
+            y = int(tangentpoint[1])
+            z = int(tangentpoint[2])
+        else:
+            x = np.append(x, int(tangentpoint[0]))
+            y = np.append(y, int(tangentpoint[1]))
+            z = np.append(z, int(tangentpoint[2]))
+
+        # If there is a particular altitude that needs to be highlighted, can be done like this (eg 200km)
+        if alt > 200 + increaser:
+            Lowesttime = i
+            increaser = 100000
+
+        if i >1998:# incase no peak is found
+            Lowesttime =i
+
+    # Form a array of cartesian coordinates, transpose for convienience
+    z=z+100e3
+    
+    Profile = [x.T, y.T, z.T]
+    Highesttime=1900
+
+    return Profile, Lowesttime, Highesttime
 
 def CosmographiaCatalogFormer(et,sv):
 
     # Select and occultation of interest, calculate the shape of it's profile, then add this to a dateframe
 
     result = occgradient(sv.front, et, sv.fframe, sv.obs, sv.target)
-    profile = result[0]
-    lowesttime = result[1]
-    highesttime = result[2]
+    Profile = result[0]
+    #Profile = Profile[:,:] - 50
+    Lowesttime = result[1]
+    Highesttime = result[2]
     lowesttimeFMT = spice.timout((et - result[1]), sv.TFMT)
     highesttimeFMT = spice.timout((et - result[2]), sv.TFMT)
-    endtimeFMT = spice.timout(et, sv.TFMT)
-    profile = np.transpose(profile)
-    profiledataframe = pd.DataFrame(profile[:][0:highesttime], columns=['X', 'Y', 'Z'])
+    endtimeFMT = spice.timout(et+60, sv.TFMT) #=1 min for the animation to finish
+    Profile = np.transpose(Profile)
+    profiledataframe = pd.DataFrame(Profile[:][0:Highesttime], columns=['X', 'Y', 'Z'])
     # Example polygon velocities [this effects the dynamic texture of the profile, purely aesthetic]. These values have
     # been chosen to be slow and variable
     vs = np.array([[1.4236, -2.4657, 6.3948],
-                   [1.6404, -2.2997, 6.4047],
-                   [1.8386, -2.1150, 6.4145],
-                   [2.0166, -1.9136, 6.4243],
-                   [2.1730, -1.6977, 6.4339],
-                   [2.3068, -1.4696, 6.4435],
-                   [2.4170, -1.2315, 6.4530],
-                   [2.5029, -0.9859, 6.4625],
-                   [2.5029, -0.9859, 6.4625],
-                   [2.5029, -0.9859, 6.4625]])
+                [1.6404, -2.2997, 6.4047],
+                [1.8386, -2.1150, 6.4145],
+                [2.0166, -1.9136, 6.4243],
+                [2.1730, -1.6977, 6.4339],
+                [2.3068, -1.4696, 6.4435],
+                [2.4170, -1.2315, 6.4530],
+                [2.5029, -0.9859, 6.4625],
+                [2.5029, -0.9859, 6.4625],
+                [2.5029, -0.9859, 6.4625]])
 
     # Iterate the polygon velocity states to be the length of profile and then combine with the positions
     vs = vs.repeat(200, axis=0)
-    vt = vs[:][0:highesttime]
+    vt = vs[:][0:Highesttime]
     velocitiesdataframe = pd.DataFrame(vt, columns=['dX', 'dY', 'dZ'])
     finalprofile = pd.concat([profiledataframe, velocitiesdataframe], axis=1)
 
     # Construct a JSON template depending on the size of the profile, split into sections of 10 points [smaller sections,
     # more smoothly the profile forms over time]
-    blockcount = math.floor(highesttime / 10) * 10
+    blockcount = math.floor(Highesttime / 10) * 10
     i = 0
     while i < (blockcount / 10):
         JS.JSONiterated = JS.JSONiterated + JS.JSONiterable
@@ -158,7 +235,7 @@ def CosmographiaCatalogFormer(et,sv):
     # convert states into single string for cosmographia to understand [cosmogrpahia computes as
     # 3 postions and 3 velocities, no need for '\n']
     for i in range(0, blockcount, 10):
-        block = (finalprofile[i:i + 10].to_numpy()) * (-1)  # inverse due to reference frame inversion
+        block = (finalprofile[i:i + 10].to_numpy()) * (-0.99)  # inverse due to reference frame inversion
         ProfileBlock = block.tolist()  # convert to list for the JSON format
 
         states = []
@@ -182,27 +259,36 @@ def CosmographiaCatalogFormer(et,sv):
         itemcounter = itemcounter + 1
 
     # serialise the formed profile into a .json that cosmographia can read
-    with open(' Profile.json', 'w') as file:
+    with open(' Profile_A.json', 'w') as file:
         json.dump(template, file, indent=3)
 
 
 # Find the location of the lowest point of the occultation
-def Location(et, sv, when):
+def Location(et,ingress, sv, when):
     Coords = np.ones(3)
     [tgopos, _] = spice.spkpos(sv.front, et-when, sv.fframe, 'NONE', sv.target)
-    [mexpos, _] = spice.spkpos(sv.front, et-when, sv.fframe, 'NONE', sv.target)
-    [sc2scvector,_] = spice.spkpos(sv.target, et-when, sv.fframe, 'NONE', sv.obs)
+    [mexpos, _] = spice.spkpos(sv.front, et-when, sv.fframe, 'NONE', sv.obs)
+    [states,_] = spice.spkezr(sv.target, et-when, sv.fframe, 'NONE', sv.obs)
+    sc2scvector = states[0:3]
+    velocity = states[3:6]
+    relativespeed = np.linalg.norm(velocity)
+    veldopp = (relativespeed/constants.c) * 437.1e9 #e9 because we are converting from km to m (SPICE outputs km, but constants in m)
     displacement = np.linalg.norm(sc2scvector)
     sc2scunitvector = np.true_divide(sc2scvector, displacement)
     marsrad = spice.bodvrd(sv.front, 'RADII', 3)  # Extract the triaxial dimensions of Mars
     # For the ray that connects MEX and TGO, find the point on this ray that is closest to the Martian surface
     [nearestpoint,alt] = spice.npedln(marsrad[1][0], marsrad[1][1], marsrad[1][2], tgopos, sc2scunitvector)
-    [radius, lon, lat] = spice.reclat(nearestpoint)
-    lon = lon * (-180 / math.pi) # Rad -> Deg , frame inversion required (hence the negative 180)
+    [radius, lon, lat] = spice.reclat(nearestpoint)# THERE IS MORE SETTINGS ON THIS
+    lon = 180 - (lon * (-180 / math.pi)) # Rad -> Deg , frame inversion required (hence the negative 180)
     lat = lat * (-180 / math.pi)
-    #Coords[0] = lon
-    #Coords[1] = lat
-    return lon,lat, displacement, nearestpoint, alt
+
+    MexNadirTGOAngle = spice.vsep(-mexpos, -sc2scvector)
+    MexNadirTGOAngle = MexNadirTGOAngle * (180/math.pi)
+
+    #produce a string of the date and time, because an ephemeris time is not human-readable
+    date_time = spice.timout(et, 'MM-DD HR:MN:SC')
+    ingress_date_time = spice.timout(ingress, 'MM-DD HR:MN:SC')
+    return lon,lat, displacement, nearestpoint, alt, relativespeed, date_time,ingress_date_time, veldopp, MexNadirTGOAngle
 
 
 
@@ -214,23 +300,23 @@ def Location(et, sv, when):
 def SolarZenithAngles(et,nearestpoint, sv):
 
     subsolarpoint,_,_ = spice.subslr('INTERCEPT/ELLIPSOID',sv.front, et, sv.fframe, 'NONE', sv.target) # Where is the sun?
-    sza = spice.vsep(subsolarpoint,nearestpoint) # angle between sun and sc
+    sza = spice.vsep(-subsolarpoint,nearestpoint) # angle between sun and sc
     latersubsolarpoint, _, _ = spice.subslr('INTERCEPT/ELLIPSOID', sv.front, et +30, sv.fframe, 'NONE', sv.target)# where is the sun later?
-    latersza = spice.vsep(latersubsolarpoint, nearestpoint)
+    latersza = spice.vsep(-latersubsolarpoint, nearestpoint)
 
     if sza < latersza: #if the sun is moving away from the tangent point (PM)
         sza = sza * (180/math.pi)
-        sza = sza*(-1) # negative SZA mean evening
+        sza = sza*(1) # pos SZA mean evening
+    else:
+        sza = sza * (-180 / math.pi)# neg SZA means mornings
 
-    sza = sza * (180 / math.pi)# positive SZA means mornings
-
-    return sza
+    return   sza
 
 
 def grazingangle(et,sv):
 
-    profile,_, ht =  occgradient(sv.front, et, sv.fframe, sv.obs, sv.target) # find the shape of the occultation profile
-    x,y,z = profile[0], profile[1], profile[2]
+    Profile,_, ht =  occgradient(sv.front, et, sv.fframe, sv.obs, sv.target) # find the shape of the occultation profile TERRIBLY SLOW
+    x,y,z = Profile[0], Profile[1], Profile[2]
     lowestpoint = np.asarray([x[0],y[0],z[0]])
     highestpoint = np.asarray([x[ht-1],y[ht-1],z[ht-1]])
     maxsc2scvector = (highestpoint - lowestpoint) # find the vector from start to end of profile
@@ -243,6 +329,18 @@ def grazingangle(et,sv):
 
     return angle
 
+#For calibration, we want a moment when we can be certain that there is no (or v little) atmospheric interation. It is suggested that 
+# calibration of the mutual occultation could begin 6 mins prior to the occ epoch. This function measures the Mars-TGO(Rx)- MEX(Tx) angle. 
+# A large earlyclearance angle means that Mars is far away from MEX, and there should be little atmosphere in the radio link.
+def earlyclearance(et,sv):
+    [Mars_TGO, _] = spice.spkpos(sv.front, et-60, sv.fframe, 'NONE', sv.target)
+    [Mars_MEX, _] = spice.spkpos(sv.front, et-60, sv.fframe, 'NONE', sv.obs)
+    [spiceTGO_MEX, _] = spice.spkpos(sv.target, et-60, sv.fframe, 'NONE', sv.obs)
+    
+    #TGO_MEX = Mars_TGO - Mars_MEX
+    #testangle = spice.vsep(spiceTGO_MEX,TGO_MEX) * (180/math.pi)
+    clearanceangle = spice.vsep(-Mars_TGO,spiceTGO_MEX) * (180/math.pi) #We use a negative Mars_TGO vector because we want the opposite direction(going to Mars)
+    return clearanceangle
 
 # Show the location of the occultation location on a map of mars
 def charter(lon, lat,beg,stop,file_location):
@@ -261,7 +359,40 @@ def charter(lon, lat,beg,stop,file_location):
     ax.plot(lon, lat, 'o',c='#bef9b9' , transform=ccrs.PlateCarree())
     plt.show()
 
+#This function will find what the expected Rx power would be at Rx.This is based on the assumption that the attitdue will not be
+#  adjusted for mutual occultation. This functions assumes the Rx will be facing nadir. @ TIME OF EPOCH, IT SHOULDNT BE OVER 90 DEGREES
+def expectedpower(et, sv):
+    [states,_] = spice.spkezr(sv.target, et, sv.fframe, 'NONE', sv.obs)
+    [tgopos, _] = spice.spkpos(sv.front, et, sv.fframe, 'NONE', sv.target)
+    sc2scvector = states[0:3]
+    displacement = np.linalg.norm(sc2scvector)
 
+    Rxangle = (spice.vsep(sc2scvector, -tgopos)) * (180/math.pi)
+
+    if Rxangle > 90:
+        Rx =nan
+        return
+
+    angle = np.linspace(0,90,19)
+    mingain = [6.2,6,5.7,5.4,4.8,4,3.2,2.5,1.8,1.2,0.7,0.2,-0.3,-1.3,-2.6,-4,-5.4,-7,-8.6]#example Rx field pattern on electra
+    f = interp1d(angle,mingain)
+    newangles = np.linspace(0,90,1)
+    interpolatedgain = f(newangles)
+    AngleLoss = f(np.floor(Rxangle))
+    
+    # plt.plot(interpolatedgain)
+    # plt.show
+
+    transmitfrequency = 437.1e6
+    vacuumwavelength  = (constants.c / transmitfrequency) 
+
+    #FREE SPACE PATH LOSS
+    DisplacementLoss = 20 * log10((2* math.pi * displacement*1000)/vacuumwavelength) # equivelent of 1/(x^2) 
+
+    Tx = 13 #MEX MELACOM transmit power
+    Rx = Tx + DisplacementLoss + AngleLoss
+    Rx + 30 #convert dBW -> dBm
+    return Rx
 
 # Produce a array containing all the coord (lon/lat), altitudes and SZAs for every meter along the Spacecraft-Spacecraft Vector
 def producegeometrylamda(et,sv, when):
@@ -366,9 +497,27 @@ def producegeometrymeter(et,sv, when):
 
 
 
-def flatbending(xyzpoints,initialangle, sv, MEX,TGO):
+def flatbending(xyzpoints,initialangle, MEX,TGO):
     #form a coordinate system where tgo is @ y=0 and x= (5000 +norm), Mar's Barrycenter being @ [5000,0]
-    subgroupsize = 10
+    class SpiceVariables:
+        obs  = '-41' # NAIF code for MEX
+        target = '-143'# NAIF code for TGO ['EARTH'/'SUN'/ a groundstation etc]
+        obsfrm = 'IAU_MARS'
+        abcorr = 'NONE'
+        crdsys = 'LATITUDINAL'
+        coord  = 'LATITUDE'
+        stepsz = 100.0 # Check every 300 seconds if there is an occultation
+        MAXILV = 100000 #Max number of occultations that can be returned by gfoclt
+        bshape = 'POINT'
+        fshape = 'DSK/UNPRIORITIZED'
+        front = 'MARS'
+        fframe = 'IAU_MARS'
+        TFMT = 'YYYY-MM-DD HR:MN:SC' # Format that Cosmographia understands
+
+    sv = SpiceVariables()
+    subgroupsize = 1
+    unit = 0.1  # in km
+    mp.dps = 40 
     #initialise non-global variables
     miniray = np.zeros(subgroupsize)
     raystep = np.zeros((2,100000000))# create a large array to populate and then shrink later
@@ -380,7 +529,7 @@ def flatbending(xyzpoints,initialangle, sv, MEX,TGO):
     marsrad = spice.bodvrd(sv.front, 'RADII', 3)
     flatteningcoefficient = ( marsrad[1][0] - marsrad[1][2] ) / marsrad[1][0]
     equatorialradii = marsrad[1][0]
-
+    TGO = TGO +0 ; MEX = MEX +0 #force to be non-strided
     _,_, MEXalt = spice.recgeo(MEX, equatorialradii,flatteningcoefficient)
     _,_, TGOalt = spice.recgeo(TGO, equatorialradii,flatteningcoefficient)
 
@@ -414,7 +563,7 @@ def flatbending(xyzpoints,initialangle, sv, MEX,TGO):
     initialtheta = -(spice.vsep(MEX-TGO, MEX))
     nicetohave = np.degrees(initialtheta)
 
-    unit = 0.5 # in km
+    
     
     
     rotationvector = np.array(( (np.cos(initialtheta), -np.sin(initialtheta)),
@@ -429,8 +578,8 @@ def flatbending(xyzpoints,initialangle, sv, MEX,TGO):
     #while iterationcount<100:
     #print( "Finding Bending Angle (", str(iterationcount) ,"% Complete)")
     errorstore = np.zeros((11,5000000))
-    miss= inf
-    missangle= inf 
+    miss = inf
+    missangle = inf 
     
     while iterationcount <100:
         if iterationcount ==0:
@@ -451,12 +600,14 @@ def flatbending(xyzpoints,initialangle, sv, MEX,TGO):
             # direction = direction.dot(rotationvector)
 
             initialdirection = direction 
-        Nstore = np.zeros(2000000)
+        Nstore = np.zeros(20000000)
         turningcounter=0
         progress= [0,0]
         stage =0
         t=0
         tic  = timer.perf_counter()
+        #raypositions = pd.DataFrame(raystep.T, columns=['x', 'y'])# should produce an empty dataframe to store 
+                                                                    #the high precision positions
         
         with tqdm(total = mex[1], desc = "Progress", leave=False) as pbar:
             while stage < 2: #==0first unit, so move two units. ==1 propergate step by step. ==2 exit and analyse entire path 
@@ -468,10 +619,10 @@ def flatbending(xyzpoints,initialangle, sv, MEX,TGO):
                 if stage==0:
                     for k in range(subgroupsize): #this starts with 0
                         point = mex + ((k+1) *(direction/subgroupsize))
-                        #_,_,miniray[k] = spice.recgeo(point, equatorialradii,flatteningcoefficient)
                         miniray[k] =  np.linalg.norm(point) - 3389 #average radii of mars
                     N0 = findrefractivity(miniray,subgroupsize)
-                    raystep[0,t] = point[0] ; raystep[1,t] = point[1] #save the last location
+                    raystep[0,t]= point[0] 
+                    raystep[1,t] = point[1] #save the last location
                     t=t+1
                     stage =stage+1
 
@@ -479,24 +630,24 @@ def flatbending(xyzpoints,initialangle, sv, MEX,TGO):
                     for k in range(subgroupsize):
                         subvalue = ((k+1) *(direction/subgroupsize))
                         point = raystep[:,t-1] + subvalue #am i double counting the end of the last and the start of the next?
-                        #_,_,miniray[k] = spice.recgeo(point, equatorialradii,flatteningcoefficient)  #THIS ONLY WORKS IN 3D
                         # IMPLEMENTING MARS AS A SIMPLE CIRCLE OF AVERAGE 3389 KM RADIUS, !THIS WILL BE UPDATED TO ELLIPSE!
                         miniray[k] =  np.linalg.norm(point) - 3389 #provides the alt, this can have less precision
-                    raystep[0,t] = point[0] ; raystep[1,t] = point[1] #save the last location
+                    raystep[0,t]= point[0] #x
+                    raystep[1,t] = point[1]  #y
                     N1 = findrefractivity(miniray,subgroupsize)
 
                     if point[1] < 0: #if the position drops below the x axis
                         stage = stage+1 #increase the stage value so the while loop is exited
 
 
-                    currenty = raystep[1,t]
+                    currenty = raystep[1,t] 
                     progress[1] = mex[1] - currenty #this value will be increasing from 0 -> Mex height
                     increment = np.floor(progress[1])- np.floor(progress[0]) #only when 
                     if increment ==1 :
                         pbar.update(1)
                     progress[0] = progress[1]
 
-                    if abs(N0) < 1e-50:#catch for precision errors e-50 is basically the entire propagation
+                    if abs(N0) < 1e-10:#catch for precision errors e-50 is basically the entire propagation
                         Nstore[t] = N1
                         t=t+1
                         N0=N1
@@ -522,9 +673,9 @@ def flatbending(xyzpoints,initialangle, sv, MEX,TGO):
 
 
                     # !! NOW WITH PRECISION !!
-
+                    #ray = raypositions.iloc[t,:].values
                     #find the angle between the unit (air volume) boarder and the current direction
-                    unitrotationaxis = raystep[:,t]/np.linalg.norm(raystep[:,t])
+                    unitrotationaxis = raystep[:,t]/(np.linalg.norm(raystep[:,t])*unit)
                     #unitdirection = direction #MAYBE ALTERING UNITS WILL EFFECT THIS * OR / BY UNIT, CANT FIGURE OUT NOW, OK WHEN UNIT =1
                     DotProduct=  fdot(unitrotationaxis,direction)
                     AngleofIncidence = (math.pi/2)- mp.acos(DotProduct) #angle it enters the next air volume
@@ -574,9 +725,7 @@ def flatbending(xyzpoints,initialangle, sv, MEX,TGO):
         Nstore =  Nstore[Nstore !=0]
         Nstore =  1-Nstore #convert N deltas into values of N
 
-       
-     
-       
+    
 
         error = np.zeros(t)   
         #print("Number of turns:", turningcounter)
@@ -599,25 +748,25 @@ def flatbending(xyzpoints,initialangle, sv, MEX,TGO):
         iterationcount=iterationcount+1
 
     #Expensive plotting (7sec)
-                # fig, ax = plt.subplots()
-                # plt.plot(barry[0],barry[1],'x' )
-                # plt.annotate('$\u2642$', (barry[0],barry[1]), fontsize = 20)
-                # marsradii = plt.Circle((0,0),3389,color = 'red', fill=False)
-                # ionoradii = plt.Circle((0,0),3389+130,color = 'blue', fill=False)
-                # ax.add_artist(marsradii)
-                # ax.add_artist(ionoradii)
-                # plt.plot(mex[0],mex[1], '.')
-                # plt.annotate('MEX',(mex[0],mex[1]))
-                # plt.plot(tgo[0], tgo[1], 'o')
-                # plt.annotate('TGO',(tgo[0], tgo[1]) )
-                # plt.plot(UnrefractedRay[0],UnrefractedRay[1], ':')
-                # plt.annotate('Distance = %ikm'%UnrefractedDistance, (UnrefractedRay[0,length//2],UnrefractedRay[1,length//2]), fontsize = 8)
-                # plt.plot(raystep[0], raystep[1], ':')
-                # plt.gca().set_aspect('equal', adjustable='box')
-                # ax.set_xlabel('X')
-                # ax.set_ylabel('Y')
-                # plt.plot(raystep[0,0::500],raystep[1,0::500], 'x', markersize = 12)
-                # plt.show()
+        fig, ax = plt.subplots()
+        plt.plot(barry[0],barry[1],'x' )
+        plt.annotate('$\u2642$', (barry[0],barry[1]), fontsize = 20)
+        marsradii = plt.Circle((0,0),3389,color = 'red', fill=False)
+        ionoradii = plt.Circle((0,0),3389+130,color = 'blue', fill=False)
+        ax.add_artist(marsradii)
+        ax.add_artist(ionoradii)
+        plt.plot(mex[0],mex[1], '.')
+        plt.annotate('MRO',(mex[0],mex[1]))
+        plt.plot(tgo[0], tgo[1], 'o')
+        plt.annotate('MO',(tgo[0], tgo[1]) )
+        plt.plot(UnrefractedRay[0],UnrefractedRay[1], ':')
+        plt.annotate('Distance = %ikm'%UnrefractedDistance, (UnrefractedRay[0,length//2],UnrefractedRay[1,length//2]), fontsize = 8)
+        plt.plot(raystep[0], raystep[1], ':')
+        plt.gca().set_aspect('equal', adjustable='box')
+        ax.set_xlabel('X')
+        ax.set_ylabel('Y')
+        plt.plot(raystep[0,0::500],raystep[1,0::500], 'x', markersize = 12)
+        plt.show()
 
 
     ElectricDistance = np.sum(Nstore) #N * wavelengths in a km (UNITS MUST BE KEPT THE SAME AS STEP-SIZE)
@@ -631,6 +780,9 @@ def finderror(refract, unrefract, angle,ittcount):
     # direction. then subtract the MEX x-value. this will produce the refracted ray deviating from a verticle straight line. 
     # This method removes any rounding or index searching errors
     
+    #Convert the dataframe into an array
+
+
     #find angle of unrefracted (previous anlgle not accurate enough found in 3d so slightly inaccurate)
     unrefracted_start2end = unrefract[:,0] - unrefract[:,-1] 
     unrefracted_start = [0,unrefract[1,0]] #this should now be a verticle line
@@ -639,7 +791,7 @@ def finderror(refract, unrefract, angle,ittcount):
     dot_product = np.dot(unit_start2end,unit_start)
     newangle = np.arccos(dot_product)# should be smaller
 
-    shortenrefract = refract[0,:]
+    shortenrefract = refract[0,:] #because the shortening merges the two rows
     shortenrefract = shortenrefract[shortenrefract !=0]
 
     error = np.zeros(len(shortenrefract)-1) #initailise a 2d vector
@@ -651,7 +803,7 @@ def finderror(refract, unrefract, angle,ittcount):
         error[i] = rotx
 
     error = error - unrefract[0,0] #subtract the origin x-value from every value in error
-    plottingerror = error * -1000 #convert to m
+    plottingerror = error *10 #convert to m
 
     ########
     #interpolate the error so the first and second derivatives can be found
@@ -682,7 +834,7 @@ def finderror(refract, unrefract, angle,ittcount):
    
     plt.plot(plottingerror, 'r')
     plt.title('Error from Unrefracted Path', loc = 'left')
-    plt.ylabel('Posistion from Unrefracted Path (m)')
+    plt.ylabel('$\Delta$ from Unrefracted Path (m)')
     plt.xlabel('Propergation Along Ray Path MEX->TGO (km)')
     plt.show()
 
@@ -700,8 +852,24 @@ def findrefractivity(alt, step):
 
 
 
-#the issue must be here then, the function above makes sense.
+#DEPRECIATED, FUNCTION MOVED MERGED INTO MAIN.LOCATIONS()
 def doppler(residual, totalperiods, dist, remaining): # the results of this is changing for the the number of iterations
+    # I FEEL BETTER ABOUT THIS METHOD, NEED TO CHECK IF THEY ARE RELATIVE THO AND SEE IF THE TRIG CHANGES THE VALUE AT ALL @ DEBUGGING
+    time = np.zeros(600)
+    for time in range(600,0,-1):
+        sc2scstates = spice.spkezr(sv.target, (657605289.1825405 - time), sv.fframe, 'LT+S', sv.obs)
+        velocityvector = sc2scstates[0][3:6]
+        velocityvector = velocityvector[0:3]
+        positionalvector =  sc2scstates[0][0:3]
+        positionalvector = positionalvector[0:3]
+        velocityangle = spice.vsep( positionalvector, velocityvector) #rads
+        relativevelocity = np.linalg.norm(velocityvector) * np.cos(velocityangle) 
+        
+        geometricdopplershift[time] = -(relativevelocity/constants.c) * 437.1e6
+
+        
+    velocitydoppler[time] = geometricdopplershift *1000 # becuase spice is in km and c is in m
+
     transmitfrequency = 437.1e6
     #dist needs to be altered, how many wavelenghts fit into the whole dist, that needs to be the iterable. wavelength is 61 cm. this is too small
     scale = 1 # scale =10, means we are itertating per 100 wavelenghts instead of 1000

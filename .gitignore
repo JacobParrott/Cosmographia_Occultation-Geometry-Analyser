@@ -1,0 +1,9 @@
+MEX/
+MEXold/
+TGOold/
+mocc/
+TGO/
+MarsRec_Odyssey/
+*.csv
+*.pkl
+*txt

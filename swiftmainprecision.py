@@ -4,12 +4,11 @@ from scipy import constants
 from scipy.interpolate import InterpolatedUnivariateSpline
 import math
 import time as timer
-import os
 
 #from decimal import *
 from tqdm import tqdm
-
-
+from mpmath import *
+mp.dps = 10 ; mp.pretty = True 
 #getcontext().prec = 35 #set the precision for the bending in function "flatbending" 
 
 
@@ -21,7 +20,6 @@ from PIL import Image
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs #import the coordinate refernece system
 from scipy.spatial.transform import Rotation as R
-from multiprocessing import Process, current_process
 
 import atmosphere
 
@@ -44,7 +42,6 @@ class SpiceVariables:
 
 
 def producegeometrymeter(et,sv,when):
-   
     [TGO, _] = spice.spkpos(sv.front, et-when, sv.fframe, 'NONE', sv.target)
     [MEX, _] = spice.spkpos(sv.front, et-when, sv.fframe, 'NONE', sv.obs)
 
@@ -91,8 +88,7 @@ def producegeometrymeter(et,sv,when):
 
 def flatbending(xyzpoints,initialangle, sv, MEX,TGO):
     #form a coordinate system where tgo is @ y=0 and x= (5000 +norm), Mar's Barrycenter being @ [5000,0]
-    subgroupsize = 1
-    unit = 0.005 # in km
+    subgroupsize = 10
     #initialise non-global variables
     miniray = np.zeros(subgroupsize)
     raystep = np.zeros((2,100000000))# create a large array to populate and then shrink later
@@ -138,7 +134,7 @@ def flatbending(xyzpoints,initialangle, sv, MEX,TGO):
     initialtheta = -(spice.vsep(MEX-TGO, MEX))
     nicetohave = np.degrees(initialtheta)
 
-    
+    unit = 1 # in km
     
     
     rotationvector = np.array(( (np.cos(initialtheta), -np.sin(initialtheta)),
@@ -153,7 +149,7 @@ def flatbending(xyzpoints,initialangle, sv, MEX,TGO):
     #while iterationcount<100:
     #print( "Finding Bending Angle (", str(iterationcount) ,"% Complete)")
     errorstore = np.zeros((11,100000))
-    Nstore = np.zeros(2000000)
+    Nstore = np.zeros(20000)
     
     while iterationcount <100:
         tic  = timer.perf_counter()
@@ -162,8 +158,8 @@ def flatbending(xyzpoints,initialangle, sv, MEX,TGO):
         else:
             # the initail direction must be rotated by a 10th of the miss at the end
             missangle = missangle/1
-            missrotationvector = np.array(( (np.cos(missangle), -np.sin(missangle)),
-                                            (np.sin(missangle),  np.cos(missangle)) ))
+            missrotationvector = np.array(( (mp.cos(missangle), mp.sin(missangle)),
+                                            (mp.sin(missangle),  mp.cos(missangle)) ))
             direction = initialdirection.dot(missrotationvector)
             initialdirection = direction 
 
@@ -197,12 +193,8 @@ def flatbending(xyzpoints,initialangle, sv, MEX,TGO):
                     raystep[:,t] = point#9 is the end of the unit, and refraction always happens relative to the center of refractivity, so rotate off this vector
                     N1 = findrefractivity(miniray,subgroupsize)
 
-
-
                     if point[1] < 0: #if the position drops below the x axis
                         stage = stage+1 #increase the stage value so the while loop is exited
-
-
 
                     #this section allows for better timing of the function, increment the progresbar by 1 if the current 
                     #position goes one y-value lower
@@ -222,9 +214,9 @@ def flatbending(xyzpoints,initialangle, sv, MEX,TGO):
                     
                     #print('Current Y possition is', currenty) #this is alt, so is ~3389 km smaller than the vector
                     r= N0/N1 #NEED MORE PRECISION
-                    numorator = N0+1
-                    denominator = N1+1
-                    rbending = numorator/denominator #average would just add 1 to total N
+                    numorator = mpf(N0)+mpf(1)
+                    denominator = mpf(N1)+mpf(1)
+                    rbending = mp.fdiv(numorator,denominator) #average would just add 1 to total N
                     if t==5000: #only bend when there is a refractive gradient between consecutive air volumes[NO CHANGE IN DIRECTION]
                         t=t+1
                         N0=N1
@@ -240,24 +232,24 @@ def flatbending(xyzpoints,initialangle, sv, MEX,TGO):
                     # !! NOW WITH PRECISION !!
 
                     #find the angle between the unit (air volume) boarder and the current direction
-                    unitrotationaxis = raystep[:,t]/(np.linalg.norm(raystep[:,t])*unit)
+                    unitrotationaxis = raystep[:,t]/np.linalg.norm(raystep[:,t])
                     #unitdirection = direction #MAYBE ALTERING UNITS WILL EFFECT THIS * OR / BY UNIT, CANT FIGURE OUT NOW, OK WHEN UNIT =1
                     DotProduct=  np.dot(unitrotationaxis,direction)
-                    AngleofIncidence = (math.pi/2)- np.arccos(DotProduct) #angle it enters the next air volume
+                    AngleofIncidence = (math.pi/2)- mp.acos(DotProduct) #angle it enters the next air volume
                     #simple snell law to find the bending angle (should be tiny angle)     
-                    AngleofRefraction = np.arcsin(rbending * np.sin(AngleofIncidence))
+                    AngleofRefraction = mp.asin(rbending * mp.sin(AngleofIncidence))
                     # THIS IS NOT EXACTLY WHAT THE TURN IN DIRECTION IS, NEED TO THINK ABOUT
                     rotateby = ((AngleofIncidence - AngleofRefraction))#+ve =clockwise, -ve=anticlockwise
 
-                    INCIDENCEDEGREES = np.degrees(AngleofIncidence)
-                    REFRACTIONDEGREES = np.degrees(AngleofRefraction)
-                    ROTATIONDEGREES = np.degrees(rotateby)
+                    INCIDENCEDEGREES = mp.degrees(AngleofIncidence)
+                    REFRACTIONDEGREES = mp.degrees(AngleofRefraction)
+                    ROTATIONDEGREES = mp.degrees(rotateby)
 
                     #an if statement is required, if this 
                     if ROTATIONDEGREES>1 or ROTATIONDEGREES<-1:
                         print('stophere, u r bending to much')
-                    rotationvector = np.array(( (np.cos(rotateby), -np.sin(rotateby)),
-                                                (np.sin(rotateby),  np.cos(rotateby))))
+                    rotationvector = np.array(( (mp.cos(rotateby), -mp.sin(rotateby)),
+                                                (mp.sin(rotateby),  mp.cos(rotateby))))
                     direction = direction.dot(rotationvector)
 
                     
@@ -268,33 +260,30 @@ def flatbending(xyzpoints,initialangle, sv, MEX,TGO):
                     t=t+1
 
             #pbar.refresh()
-        
-        #find the total bending angle at MEX for this final configuration
-        unit_initial = initialdirection/ np.linalg.norm(initialdirection)
-        dot_product = np.dot(unit_initial,unitmex)
-        FinalBendingAngle = np.arccos(dot_product)
-
 
         error = np.zeros(t)   
         #print("Number of turns:", turningcounter)
         error = finderror(raystep, UnrefractedRay)
         miss = error
 
-        missangle = np.arcsin(miss/ UnrefractedDistance)
+        missangle = mp.asin(miss/ UnrefractedDistance)
         toc  = timer.perf_counter()
         passingtime = toc-tic
-
-        print(' miss =', format(miss*1000, '.5f') ,'m || Angle =', np.degrees(FinalBendingAngle + initialtheta) ,
+        print(' miss =', format(miss*1000, '.5f') ,'m || Angle =', nstr(mp.degrees(missangle),5) ,
                             '° || Speed =',passingtime,' Sec \n', sep = " ", end= " ", flush =True)
         if abs(miss) <1e-5: #is the miss smaller than 10 cm?
             #ploterrortraces(errorstore,t)
             break
         iterationcount=iterationcount+1
 
+    #find the total bending angle at MEX for this final configuration
+    unit_initial = initialdirection/ np.linalg.norm(initialdirection)
+    dot_product = np.dot(unit_initial,unitmex)
+    FinalBendingAngle = mp.acos(dot_product)
 
     #from the refractive profile from MEX ->TGO, calc the intergral of the change in wavelength to aquire doppler
     Nstore =  Nstore[Nstore != 0]
-    Nstore = 1 - Nstore  #convert N deltas into values of N. negative values of N will give a longer electric distance
+    Nstore = Nstore + 1 #convert N deltas into values of N
     ElectricDistance = np.sum(Nstore) #N * wavelengths in a km (UNITS MUST BE KEPT THE SAME AS STEP-SIZE)
 
     return FinalBendingAngle, ElectricDistance
