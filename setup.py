@@ -15,9 +15,9 @@ import math
 #Import custom modules
 
 import main
-import atmosphere
-import swiftmain #a faster version for the costly doppler profile calculations
-import FindDopplerMain
+#import atmosphere
+#import swiftmain #a faster version for the costly doppler profile calculations
+#import FindDopplerMain
 
 
 
@@ -25,13 +25,13 @@ import FindDopplerMain
 #-----------------------------------------------------<VALUES TO EDIT REGULARLY>----------------------------------------
 # If you only wish to analysis mutual [cross-link] occultation between MEX and TGO, then this is the only section that
 # needs to be edited
-start  = '2020 NOV 1'
-stop   = '2020 NOV 5'
+start  = '2020 NOV 30'
+stop   = '2020 DEC 2'
 OCCSELECTION = 2 # Which occultation do you wish to see in Cosmographia? [optional]
 here = path.abspath(path.dirname(__file__))
 
-PathtoMetaKernel1 = here + '/TGO/mk/em16_plan.tm'
-PathtoMetaKernel2 = here + '/MEX/krns/mk/MEX_OPS.tm'
+PathtoMetaKernel1 = 'C:/Users/Jacob/Documents/Doppler-Simulation-for-Mutual-Occultation/TGO/mk/em16_ops.tm' 
+PathtoMetaKernel2 = 'C:/Users/Jacob/Documents/Doppler-Simulation-for-Mutual-Occultation/MEX/mk/MEX_OPS.tm'
 
 print(PathtoMetaKernel1)
 print(PathtoMetaKernel2)
@@ -51,21 +51,21 @@ spice.furnsh(PathtoMetaKernel2)
 sv = main.SpiceVariables()
 
 #~~~~~~~EXPERIMENTZONE#######################
-from scipy import constants
-import pickle
-geometricdopplershift = np.zeros(600)
-for time in range(599,0,-1):
-    sc2scstates = spice.spkezr(sv.target, (657605289.1825405 - time), sv.fframe, 'LT+S', sv.obs)
-    velocityvector = sc2scstates[0][3:6]
-    velocityvector = velocityvector[0:3]
-    positionalvector =  sc2scstates[0][0:3]
-    positionalvector = positionalvector[0:3]
-    velocityangle = spice.vsep( positionalvector, velocityvector) #rads
-    relativevelocity = np.linalg.norm(velocityvector) * np.cos(velocityangle) 
+# from scipy import constants
+# import pickle
+# geometricdopplershift = np.zeros(600)
+# for time in range(599,0,-1):
+#     sc2scstates = spice.spkezr(sv.target, (657605289.1825405 - time), sv.fframe, 'LT+S', sv.obs)
+#     velocityvector = sc2scstates[0][3:6]
+#     velocityvector = velocityvector[0:3]
+#     positionalvector =  sc2scstates[0][0:3]
+#     positionalvector = positionalvector[0:3]
+#     velocityangle = spice.vsep( positionalvector, velocityvector) #rads
+#     relativevelocity = np.linalg.norm(velocityvector) * np.cos(velocityangle) 
     
-    geometricdopplershift[time] = -(relativevelocity/constants.c) * 437.1e9 #conversion from km to m
+#     geometricdopplershift[time] = -(relativevelocity/constants.c) * 437.1e9 #conversion from km to m
 
-pd.DataFrame(geometricdopplershift).to_csv("geometricdopplershift.csv")
+# pd.DataFrame(geometricdopplershift).to_csv("geometricdopplershift.csv")
 
 
 
@@ -167,8 +167,8 @@ occs = occs[(occs["Distance (km)"] <10000)]# ADD FURTHER FILTERING HERE
 
 occs.to_excel("OccultationSelection.xlsx")#Will not save to exel file if it is open in another window
 
-CosmoTime = ingresslist[OCCSELECTION]
-main.CosmographiaCatalogFormer(658560507, sv)
+# CosmoTime = ingresslist[OCCSELECTION]
+# main.CosmographiaCatalogFormer(658560507, sv)
 
 
 print('stop here')

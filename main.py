@@ -35,7 +35,7 @@ class SpiceVariables:
     abcorr = 'NONE'
     crdsys = 'LATITUDINAL'
     coord  = 'LATITUDE'
-    stepsz = 2.0 # Check every 300 seconds if there is an occultation
+    stepsz = 2.0 # Check every 2 seconds if there is an occultation
     MAXILV = 100000 #Max number of occultations that can be returned by gfoclt
     bshape = 'POINT' #Rx shape
     fshape = 'ELLIPSOID'
