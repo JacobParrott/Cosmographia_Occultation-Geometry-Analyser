@@ -1,0 +1,18 @@
+{
+    "mars":{
+        "cmap": ["#e6dfcf", "#c2bda9", "#d32026", "#21333d"],
+        "levels": [-9200, 8000, 400],
+        "levels_small": [-8800, 8000, 800],
+        "file_large": "A:/ATLAS_OF_SPACE/image_outputs/ortho_DEMs/mars_lat30_lon90_downsampled.tif",
+        "file_small": [ "A:/ATLAS_OF_SPACE/image_outputs/ortho_DEMs/mars_lat90_lon90_downsampled.tif",
+                        "A:/ATLAS_OF_SPACE/image_outputs/ortho_DEMs/mars_lat-90_lon90_downsampled.tif",
+                        "A:/ATLAS_OF_SPACE/image_outputs/ortho_DEMs/mars_lat0_lon270_downsampled.tif"],
+        "save_head": "A:/ATLAS_OF_SPACE/image_outputs/topography/",
+        "labelfile": "./mars.csv",
+        "limit": "NaN",
+        "limit_small": "NaN",
+        "gauss": 10,
+        "gauss_small": 30,
+        "ortho": [90, 30]
+    }
+}
